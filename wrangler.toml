@@ -1,0 +1,16 @@
+name = "worker-rust"
+main = "build/worker/shim.mjs"
+compatibility_date = "2023-03-22"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
+
+# Set environment variables for your build script here.
+# [Docs](https://developers.cloudflare.com/workers/configuration/environment-variables/#add-environment-variables-via-wrangler)
+[vars]
+USERNAME = "your name"
+PASSWORD = "your password"
+
+[[r2_buckets]]
+binding = "bucket"
+bucket_name = "webdav"
