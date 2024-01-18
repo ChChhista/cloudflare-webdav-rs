@@ -1,7 +1,6 @@
-use std::{collections::HashMap, future::Future, pin::Pin};
-
 use base64::{engine::general_purpose, Engine as _};
 use http::Method;
+use std::{collections::HashMap, future::Future, pin::Pin};
 use worker::*;
 
 use crate::constant::*;
@@ -36,7 +35,7 @@ async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
 }
 
-async fn list_all_files(bucket: Bucket, prefix: impl Into<String> + Copy) -> Result<Vec<Object>> {
+async fn list_all_files(bucket: &Bucket, prefix: impl Into<String> + Copy) -> Result<Vec<Object>> {
     let mut files = vec![];
     let mut cursor = None;
     loop {
@@ -62,7 +61,7 @@ async fn list_all_files(bucket: Bucket, prefix: impl Into<String> + Copy) -> Res
 /// [Not advertised in OPTIONS response](http://www.webdav.org/specs/rfc4918.html#HEADER_DAV)
 async fn handle_options(_req: Request, _bucket: Bucket) -> Result<Response> {
     let mut headers = Headers::new();
-    headers.append("DAV", "1")?;
+    headers.append("DAV", "1, 2")?;
     headers.append("Allow", METHODS.join(", ").as_str())?;
     Ok(Response::empty()?.with_status(204).with_headers(headers))
 }
@@ -95,7 +94,21 @@ async fn handle_get(req: Request, bucket: Bucket) -> Result<Response> {
 }
 
 async fn handle_delete(req: Request, bucket: Bucket) -> Result<Response> {
-    todo!()
+    let url = req.url()?;
+    let key = url.path().trim_matches('/');
+
+    let source = bucket.head(key).await?;
+    if source.is_none() {
+        let files = list_all_files(&bucket, key).await?;
+        if files.is_empty() {
+            return Response::error("Not Found", 404);
+        }
+        for f in files {
+            bucket.delete(f.key()).await?;
+        }
+    }
+    bucket.delete(key).await?;
+    Ok(Response::empty()?.with_status(204))
 }
 
 async fn handle_proppatch(req: Request, bucket: Bucket) -> Result<Response> {
@@ -103,7 +116,22 @@ async fn handle_proppatch(req: Request, bucket: Bucket) -> Result<Response> {
 }
 
 async fn handle_mkcol(req: Request, bucket: Bucket) -> Result<Response> {
-    todo!()
+    let url = req.url()?;
+    let key = url.path().trim_matches('/');
+    if key.is_empty() {
+        return Response::error("Method Not Found", 405);
+    }
+    // flag: The folder has been created for R2.
+    let flag = key.to_string() + "/";
+    let object = bucket.head(&flag).await?;
+    if object.is_some() {
+        return Response::error("Conflict", 409);
+    }
+    bucket
+        .put(flag, Data::from(String::from("")))
+        .execute()
+        .await?;
+    Ok(Response::empty()?.with_status(201))
 }
 
 async fn handle_propfind(req: Request, bucket: Bucket) -> Result<Response> {
@@ -139,7 +167,7 @@ async fn handle_propfind(req: Request, bucket: Bucket) -> Result<Response> {
             Ok(Response::ok(page)?.with_headers(headers))
         }
         "1" => {
-            let objects = list_all_files(bucket, key).await?;
+            let objects = list_all_files(&bucket, key).await?;
             if objects.is_empty() {
                 return Response::error("Not Found", 404);
             }
@@ -170,8 +198,15 @@ async fn handle_propfind(req: Request, bucket: Bucket) -> Result<Response> {
     }
 }
 
-async fn handle_put(req: Request, bucket: Bucket) -> Result<Response> {
-    todo!()
+async fn handle_put(mut req: Request, bucket: Bucket) -> Result<Response> {
+    let url = req.url()?;
+    let key = url.path().trim_matches('/');
+    if key.is_empty() {
+        return Response::error("Method Not Found", 405);
+    }
+    let data = req.bytes().await?;
+    bucket.put(key, Data::from(data)).execute().await?;
+    Ok(Response::empty()?.with_status(201))
 }
 
 async fn handle_copy(req: Request, bucket: Bucket) -> Result<Response> {
@@ -180,6 +215,35 @@ async fn handle_copy(req: Request, bucket: Bucket) -> Result<Response> {
 
 async fn handle_move(req: Request, bucket: Bucket) -> Result<Response> {
     todo!()
+}
+
+async fn handle_lock(req: Request, _bucket: Bucket) -> Result<Response> {
+    let depth = req.headers().get("Depth")?.unwrap_or(String::from("0"));
+    let timeout = req
+        .headers()
+        .get("Timeout")?
+        .unwrap_or(String::from("Infinite"));
+    // TODO: parser xml and lock token
+    // <D:locktoken>
+    //   <D:href>opaquelocktoken:{}</D:href>
+    // </D:locktoken>
+    Response::ok(format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<D:prop xmlns:D="DAV:">
+  <D:lockdiscovery>
+    <D:activelock>
+      <D:locktype><D:write/></D:locktype>
+      <D:lockscope><D:exclusive/></D:lockscope>
+      <D:depth>{}</D:depth>
+      <ns0:owner xmlns:ns0="DAV:">
+        <ns0:href>http://www.apple.com/webdav_fs/</ns0:href>
+      </ns0:owner>
+        <D:timeout>{}</D:timeout>
+    </D:activelock>
+  </D:lockdiscovery>
+</D:prop>"#,
+        depth, timeout,
+    ))
 }
 
 type AsyncHandler = Box<dyn Fn(Request, Bucket) -> Pin<Box<dyn Future<Output = Result<Response>>>>>;
@@ -225,6 +289,14 @@ async fn dispatch_request(req: Request, bucket: Bucket) -> Result<Response> {
     handlers.insert(
         "MOVE",
         Box::new(|req, bucket| Box::pin(handle_move(req, bucket))),
+    );
+    handlers.insert(
+        "LOCK",
+        Box::new(|req, bucket| Box::pin(handle_lock(req, bucket))),
+    );
+    handlers.insert(
+        "UNLOCK",
+        Box::new(|_, _| Box::pin(async { Ok(Response::empty()?.with_status(204)) })),
     );
 
     match handlers.get(req.method().as_str()) {

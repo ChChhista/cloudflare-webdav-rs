@@ -51,8 +51,8 @@ impl DavBuilder {
     }
 
     pub fn build(self) -> String {
-        let content_length_str = self.get_content_length.unwrap_or(String::new());
-        let etag = self.get_etag.unwrap_or(String::new());
+        let content_length_str = self.get_content_length.unwrap_or_default();
+        let etag = self.get_etag.unwrap_or_default();
 
         format!(
             r#"<response>
@@ -61,9 +61,28 @@ impl DavBuilder {
             <prop>
             <resourcetype>{}</resourcetype>
             <creationdate>{}</creationdate>
-            {}
+            <getcontentlength>{}</getcontentlength>
             <getlastmodified>{}</getlastmodified>
             <getetag>{}</getetag>
+            <supportedlock>
+                    <lockentry>
+                        <lockscope>
+                            <exclusive/>
+                        </lockscope>
+                        <locktype>
+                            <write/>
+                        </locktype>
+                    </lockentry>
+                    <lockentry>
+                        <lockscope>
+                            <shared/>
+                        </lockscope>
+                        <locktype>
+                            <write/>
+                        </locktype>
+                    </lockentry>
+                </supportedlock>
+                <lockdiscovery/>
             <getcontenttype>{}</getcontenttype>
             </prop>
             <status>HTTP/1.1 200 OK</status>

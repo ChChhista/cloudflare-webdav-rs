@@ -1,4 +1,4 @@
-pub const METHODS: [&str; 9] = [
+pub const METHODS: [&str; 12] = [
     "GET",
     "DELETE",
     "PROPPATCH",
@@ -8,6 +8,9 @@ pub const METHODS: [&str; 9] = [
     "PROPFIND",
     "COPY",
     "MOVE",
+    "LOCK",
+    "UNLOCK",
+    "PUT",
 ];
 
 pub const ALLOW_HEADERS: [&str; 6] = [

@@ -8,8 +8,8 @@ command = "cargo install -q worker-build && worker-build --release"
 # Set environment variables for your build script here.
 # [Docs](https://developers.cloudflare.com/workers/configuration/environment-variables/#add-environment-variables-via-wrangler)
 [vars]
-USERNAME = "your name"
-PASSWORD = "your password"
+USERNAME = "name"
+PASSWORD = "password"
 
 [[r2_buckets]]
 binding = "bucket"
