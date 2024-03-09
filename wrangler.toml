@@ -13,4 +13,4 @@ PASSWORD = "password"
 
 [[r2_buckets]]
 binding = "bucket"
-bucket_name = "webdav"
+bucket_name = "bucket"
